@@ -24,6 +24,7 @@ import java.util.Arrays;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "[MainActivity]";
+    private static final boolean DEBUG = false;
 
     // recording parameters
     private static final int SAMPLE_RATE = 8000;
@@ -34,11 +35,19 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String RECORDING_THREAD_NAME = "AudioRecorder Thread";
 
+    // ACF pitch tracking
+    private static final float ACF_MAX_PITCH = 1000.0f;
+    private static final float ACF_MIN_PITCH = 40.0f;
+    private static final int ACF_MAX_PITCH_POINT = (int) Math.floor(SAMPLE_RATE / ACF_MAX_PITCH);
+    private static final int ACF_MIN_PITCH_POINT = (int) Math.floor(SAMPLE_RATE / ACF_MIN_PITCH);
+    private static final float BASE_A_PITCH = 440.0f;
+
     private AudioRecord recorder;
     private Thread recordingThread;
     private boolean mIsRecording = false;
 
     private TextView volumeText;
+    private TextView pitchText;
     private Handler mainHandler;
 
     @Override
@@ -61,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "Min. buffer size: " + BUFFER_ELEMENT_COUNT);
 
         volumeText = (TextView) findViewById(R.id.volumeText);
+        pitchText = (TextView) findViewById(R.id.pitchText);
         mainHandler = new Handler(Looper.getMainLooper());
     }
 
@@ -98,8 +108,10 @@ public class MainActivity extends AppCompatActivity {
 //            System.out.println("Short wirting to file" + Arrays.toString(sData));
             int simpleVolume = getSimpleVolume(sData);
             float decibel = getDecibelVolume(sData);
+            float acfPitch = getAcfPitch(sData);
 
-            notifyVolume(simpleVolume, decibel);
+
+            notifyVolumeAndPitch(simpleVolume, decibel, acfPitch);
         }
     }
 
@@ -163,14 +175,57 @@ public class MainActivity extends AppCompatActivity {
             return dataCopy[centerIndex];
     }
 
-    private void notifyVolume(final int value, final float decibel) {
+    private void notifyVolumeAndPitch(final int value, final float decibel, final float acfPitch) {
         Runnable myRunnable = new Runnable() {
             @Override
             public void run() {
                 volumeText.setText(String.format("%.1f dB", decibel));
+                pitchText.setText(String.format("%.1f Hz(%.1f Semitone)",
+                        acfPitch, pitch2Semitone(acfPitch)));
             }
         };
         mainHandler.post(myRunnable);
+    }
+
+    private float getAcfPitch(short[] data) {
+        int[] shiftedInnerProduct = new int[data.length];
+
+        for (int i = 0; i < data.length; i++) {
+
+            // computing shifted inner product at point i
+            int sum = 0;
+            for (int j = 0; j < data.length; j++) {
+                if ((i + j) > data.length - 1) break;
+                sum += data[j] * data[j + i];
+            }
+            shiftedInnerProduct[i] = sum;
+        }
+
+        // set starting and ending data to prevent unreasonable pitch
+        for (int i = 0; i < data.length; i++) {
+            if (i < ACF_MAX_PITCH_POINT || i > ACF_MIN_PITCH_POINT) {
+                shiftedInnerProduct[i] = Integer.MIN_VALUE;
+            }
+        }
+
+        // find max value and index from inner products
+        int max = Integer.MIN_VALUE;
+        int maxIndex = -1;
+        for (int i = 0; i < data.length; i++) {
+            if (shiftedInnerProduct[i] > max) {
+                max = shiftedInnerProduct[i];
+                maxIndex = i;
+            }
+        }
+
+        if (DEBUG)
+            Log.d(TAG, String.format("[getAcfPitch] maxIndex(%d), value(%d)", maxIndex, max));
+
+        return ((float) SAMPLE_RATE) / maxIndex;
+    }
+
+    private float pitch2Semitone(float pitch) {
+        return (float) (69f + 12 * Math.log(pitch / BASE_A_PITCH) / Math.log(2));
     }
 
     @Override
