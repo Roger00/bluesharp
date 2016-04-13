@@ -109,9 +109,14 @@ public class MainActivity extends AppCompatActivity {
             int simpleVolume = getSimpleVolume(sData);
             float decibel = getDecibelVolume(sData);
             float acfPitch = getAcfPitch(sData);
+            float amdfPitch = getAMDFPitch(sData);
 
-
-            notifyVolumeAndPitch(simpleVolume, decibel, acfPitch);
+            // volume threshold for pitch-tracking
+            if (decibel < getMaxDecibelVolume() * .0125f) {
+                acfPitch = 0;
+                amdfPitch = 0;
+            }
+            notifyVolumeAndPitch(simpleVolume, decibel, acfPitch, amdfPitch);
         }
     }
 
@@ -151,6 +156,14 @@ public class MainActivity extends AppCompatActivity {
         return (float) (10 * Math.log10(sum) - 70);
     }
 
+    private float getMaxDecibelVolume() {
+        float max = Short.MAX_VALUE;
+        int cPoints = BUFFER_ELEMENT_COUNT;
+        float sum = max * max * cPoints;
+
+        return (float) (10 * Math.log10(sum) - 70);
+    }
+
     private float getMeanFromArray(short[] data) {
         int sum = 0;
         for (short d : data) {
@@ -175,13 +188,18 @@ public class MainActivity extends AppCompatActivity {
             return dataCopy[centerIndex];
     }
 
-    private void notifyVolumeAndPitch(final int value, final float decibel, final float acfPitch) {
+    private void notifyVolumeAndPitch(final int value,
+                                      final float decibel,
+                                      final float acfPitch,
+                                      final float amdfPitch) {
         Runnable myRunnable = new Runnable() {
             @Override
             public void run() {
+                float acfSemitone = pitch2Semitone(acfPitch);
+                float amdfSemitone = pitch2Semitone(amdfPitch);
                 volumeText.setText(String.format("%.1f dB", decibel));
-                pitchText.setText(String.format("%.1f Hz(%.1f Semitone)",
-                        acfPitch, pitch2Semitone(acfPitch)));
+                pitchText.setText(String.format("%.1f Hz(%.1f Semitone), acf-amdf semitone(%.1f)",
+                        amdfPitch, amdfSemitone, acfSemitone-amdfSemitone));
             }
         };
         mainHandler.post(myRunnable);
@@ -208,20 +226,54 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // find max value and index from inner products
-        int max = Integer.MIN_VALUE;
-        int maxIndex = -1;
+        return ((float) SAMPLE_RATE) / getMaxValue(shiftedInnerProduct, true);
+    }
+
+    private float getAMDFPitch(short[] data) {
+        int[] shiftedSumOfAbsDiff = new int[data.length];
+
         for (int i = 0; i < data.length; i++) {
-            if (shiftedInnerProduct[i] > max) {
-                max = shiftedInnerProduct[i];
-                maxIndex = i;
+
+            // computing shifted sum of absolute difference at point i
+            int sum = 0;
+            for (int j = 0; j < data.length; j++) {
+                if ((i + j) > data.length - 1) break;
+                sum += Math.abs(data[j] - data[j + i]);
+            }
+            shiftedSumOfAbsDiff[i] = sum;
+        }
+
+        // add augmentation terms for latter data; and flip data array upside-down
+        int max = getMaxValue(shiftedSumOfAbsDiff, false);
+        for (int i = 0; i < data.length; i++) {
+            shiftedSumOfAbsDiff[i] += (max * ((float) i / data.length));
+            shiftedSumOfAbsDiff[i] *= -1;
+        }
+
+        // set starting and ending data to prevent unreasonable pitch
+        for (int i = 0; i < data.length; i++) {
+            if (i < ACF_MAX_PITCH_POINT || i > ACF_MIN_PITCH_POINT) {
+                shiftedSumOfAbsDiff[i] = Integer.MIN_VALUE;
             }
         }
 
-        if (DEBUG)
-            Log.d(TAG, String.format("[getAcfPitch] maxIndex(%d), value(%d)", maxIndex, max));
+        return ((float) SAMPLE_RATE) / getMaxValue(shiftedSumOfAbsDiff, true);
+    }
 
-        return ((float) SAMPLE_RATE) / maxIndex;
+    private int getMaxValue(int[] data, boolean getIndex) {
+        if (data.length == 0) {
+            return Integer.MIN_VALUE;
+        }
+
+        int maxIndex = 0;
+        int max = data[maxIndex];
+        for (int i = 1; i < data.length; i++) {
+            if (data[i] > max) {
+                max = data[i];
+                maxIndex = i;
+            }
+        }
+        return getIndex ? maxIndex : max;
     }
 
     private float pitch2Semitone(float pitch) {
