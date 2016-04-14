@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView volumeText;
     private TextView pitchText;
+    private HarpView harpView;
     private Handler mainHandler;
 
     @Override
@@ -71,6 +72,7 @@ public class MainActivity extends AppCompatActivity {
 
         volumeText = (TextView) findViewById(R.id.volumeText);
         pitchText = (TextView) findViewById(R.id.pitchText);
+        harpView = (HarpView) findViewById(R.id.harpView);
         mainHandler = new Handler(Looper.getMainLooper());
     }
 
@@ -109,14 +111,16 @@ public class MainActivity extends AppCompatActivity {
             int simpleVolume = getSimpleVolume(sData);
             float decibel = getDecibelVolume(sData);
             float acfPitch = getAcfPitch(sData);
-            float amdfPitch = getAMDFPitch(sData);
+//            float amdfPitch = getAMDFPitch(sData);
+//            float acfOverAmdfPitch = getACFOverAMDFPitch(sData);
 
             // volume threshold for pitch-tracking
             if (decibel < getMaxDecibelVolume() * .0125f) {
                 acfPitch = 0;
-                amdfPitch = 0;
+//                amdfPitch = 0;
+//                acfOverAmdfPitch = 0;
             }
-            notifyVolumeAndPitch(simpleVolume, decibel, acfPitch, amdfPitch);
+            notifyVolumeAndPitch(simpleVolume, decibel, acfPitch, 0, 0);
         }
     }
 
@@ -191,15 +195,18 @@ public class MainActivity extends AppCompatActivity {
     private void notifyVolumeAndPitch(final int value,
                                       final float decibel,
                                       final float acfPitch,
-                                      final float amdfPitch) {
+                                      final float amdfPitch,
+                                      final float acfOverAmdfPitch) {
         Runnable myRunnable = new Runnable() {
             @Override
             public void run() {
                 float acfSemitone = pitch2Semitone(acfPitch);
-                float amdfSemitone = pitch2Semitone(amdfPitch);
+//                float amdfSemitone = pitch2Semitone(amdfPitch);
+//                float acfOverAmdfSemitone = pitch2Semitone(acfOverAmdfPitch);
                 volumeText.setText(String.format("%.1f dB", decibel));
-                pitchText.setText(String.format("%.1f Hz(%.1f Semitone), acf-amdf semitone(%.1f)",
-                        amdfPitch, amdfSemitone, acfSemitone-amdfSemitone));
+                pitchText.setText(String.format("%.1f Hz(%.1f Semitone)", acfPitch, acfSemitone));
+
+                harpView.setHighlight(acfSemitone);
             }
         };
         mainHandler.post(myRunnable);
@@ -258,6 +265,48 @@ public class MainActivity extends AppCompatActivity {
         }
 
         return ((float) SAMPLE_RATE) / getMaxValue(shiftedSumOfAbsDiff, true);
+    }
+
+    private float getACFOverAMDFPitch(short[] data) {
+
+        int[] shiftedInnerProduct = new int[data.length];
+        int[] shiftedSumOfAbsDiff = new int[data.length];
+        int[] acfOverAmdfVector = new int[data.length];
+
+        for (int i = 0; i < data.length; i++) {
+
+            // computing shifted inner product at point i
+            int innerProduct = 0;
+            int absDiff = 0;
+            for (int j = 0; j < data.length; j++) {
+                if ((i + j) > data.length - 1) break;
+                innerProduct += data[j] * data[j + i];
+                absDiff += Math.abs(data[j] - data[j + i]);
+            }
+            shiftedInnerProduct[i] = innerProduct;
+            shiftedSumOfAbsDiff[i] = absDiff;
+        }
+
+        // add augmentation terms for latter data; and flip data array upside-down
+        int max = getMaxValue(shiftedSumOfAbsDiff, false);
+        for (int i = 0; i < data.length; i++) {
+            shiftedSumOfAbsDiff[i] += (max * ((float) i / data.length));
+            shiftedSumOfAbsDiff[i] *= -1;
+        }
+
+        for (int i = 0; i < data.length; i++) {
+            acfOverAmdfVector[i] = shiftedSumOfAbsDiff[i] == 0 ?
+                    Integer.MIN_VALUE : shiftedInnerProduct[i] / shiftedSumOfAbsDiff[i];
+        }
+
+        // set starting and ending data to prevent unreasonable pitch
+        for (int i = 0; i < data.length; i++) {
+            if (i < ACF_MAX_PITCH_POINT || i > ACF_MIN_PITCH_POINT) {
+                acfOverAmdfVector[i] = Integer.MIN_VALUE;
+            }
+        }
+
+        return ((float) SAMPLE_RATE) / getMaxValue(acfOverAmdfVector, true);
     }
 
     private int getMaxValue(int[] data, boolean getIndex) {

@@ -13,7 +13,13 @@
     tools:context="com.rnfstudio.bluesharp.MainActivity"
     tools:showIn="@layout/activity_main">
 
+    <com.rnfstudio.bluesharp.HarpView
+        android:layout_width="@dimen/harp_width"
+        android:layout_height="@dimen/harp_height"
+        android:id="@+id/harpView" />
+
     <TextView
+        android:layout_below="@id/harpView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textAppearance="@android:style/TextAppearance.Large"
@@ -29,4 +35,5 @@
         android:text="0 Hz"
         android:gravity="center"
         android:id="@+id/pitchText"/>
+
 </RelativeLayout>
