@@ -44,9 +44,6 @@ public class HarpView extends View {
         textSize = context.getResources().getDimension(R.dimen.cell_text_size);
         cellW = harpW / cColumn;
         cellH = harpH / cRow;
-        Log.d("xxxxx1", String.valueOf(harpW));
-        Log.d("xxxxx2", String.valueOf(harpH));
-        Log.d("xxxxx3", String.valueOf(textSize));
 
         cellPaint = new Paint();
         cellPaint.setColor(ContextCompat.getColor(context, android.R.color.darker_gray));

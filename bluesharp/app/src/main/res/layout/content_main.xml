@@ -13,7 +13,13 @@
     tools:context="com.rnfstudio.bluesharp.MainActivity"
     tools:showIn="@layout/activity_main">
 
+    <com.rnfstudio.bluesharp.WaveView
+        android:layout_width="@dimen/harp_width"
+        android:layout_height="@dimen/harp_height"
+        android:id="@+id/waveView" />
+
     <com.rnfstudio.bluesharp.HarpView
+        android:layout_below="@id/waveView"
         android:layout_width="@dimen/harp_width"
         android:layout_height="@dimen/harp_height"
         android:id="@+id/harpView" />

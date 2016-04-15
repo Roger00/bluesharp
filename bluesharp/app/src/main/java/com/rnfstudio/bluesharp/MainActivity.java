@@ -49,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView volumeText;
     private TextView pitchText;
     private HarpView harpView;
+    private WaveView waveView;
     private Handler mainHandler;
 
     @Override
@@ -73,6 +74,7 @@ public class MainActivity extends AppCompatActivity {
         volumeText = (TextView) findViewById(R.id.volumeText);
         pitchText = (TextView) findViewById(R.id.pitchText);
         harpView = (HarpView) findViewById(R.id.harpView);
+        waveView = (WaveView) findViewById(R.id.waveView);
         mainHandler = new Handler(Looper.getMainLooper());
     }
 
@@ -110,7 +112,7 @@ public class MainActivity extends AppCompatActivity {
 //            System.out.println("Short wirting to file" + Arrays.toString(sData));
             int simpleVolume = getSimpleVolume(sData);
             float decibel = getDecibelVolume(sData);
-            float acfPitch = getAcfPitch(sData);
+            float acfPitch = getAcfVar1Pitch(sData);
 //            float amdfPitch = getAMDFPitch(sData);
 //            float acfOverAmdfPitch = getACFOverAMDFPitch(sData);
 
@@ -119,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
                 acfPitch = 0;
 //                amdfPitch = 0;
 //                acfOverAmdfPitch = 0;
+                waveView.setData(WaveView.KEY_RAW_DATA, sData);
             }
             notifyVolumeAndPitch(simpleVolume, decibel, acfPitch, 0, 0);
         }
@@ -207,6 +210,7 @@ public class MainActivity extends AppCompatActivity {
                 pitchText.setText(String.format("%.1f Hz(%.1f Semitone)", acfPitch, acfSemitone));
 
                 harpView.setHighlight(acfSemitone);
+                waveView.invalidate();
             }
         };
         mainHandler.post(myRunnable);
@@ -232,6 +236,32 @@ public class MainActivity extends AppCompatActivity {
                 shiftedInnerProduct[i] = Integer.MIN_VALUE;
             }
         }
+
+        return ((float) SAMPLE_RATE) / getMaxValue(shiftedInnerProduct, true);
+    }
+
+    private float getAcfVar1Pitch(short[] data) {
+        short[] shiftedInnerProduct = new short[data.length];
+
+        for (int i = 0; i < data.length; i++) {
+
+            // computing shifted inner product at point i
+            int sum = 0;
+            for (int j = 0; j < data.length; j++) {
+                if ((i + j) > data.length - 1) break;
+                sum += data[j] * data[j + i];
+            }
+            shiftedInnerProduct[i] = (short) (sum / (data.length - i));
+        }
+
+        // set starting and ending data to prevent unreasonable pitch
+        for (int i = 0; i < data.length; i++) {
+            if (i < ACF_MAX_PITCH_POINT || i > ACF_MIN_PITCH_POINT) {
+                shiftedInnerProduct[i] = Short.MIN_VALUE;
+            }
+        }
+
+        waveView.setData(WaveView.KEY_ACF_PITCH, shiftedInnerProduct);
 
         return ((float) SAMPLE_RATE) / getMaxValue(shiftedInnerProduct, true);
     }
@@ -317,6 +347,22 @@ public class MainActivity extends AppCompatActivity {
         int maxIndex = 0;
         int max = data[maxIndex];
         for (int i = 1; i < data.length; i++) {
+            if (data[i] > max) {
+                max = data[i];
+                maxIndex = i;
+            }
+        }
+        return getIndex ? maxIndex : max;
+    }
+
+    private short getMaxValue(short[] data, boolean getIndex) {
+        if (data.length == 0) {
+            return Short.MIN_VALUE;
+        }
+
+        short maxIndex = 0;
+        short max = data[maxIndex];
+        for (short i = 1; i < data.length; i++) {
             if (data[i] > max) {
                 max = data[i];
                 maxIndex = i;
